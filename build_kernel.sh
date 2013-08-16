@@ -16,7 +16,7 @@ export CROSS_COMPILE=~/{Your path}/arm-eabi-4.6/bin/arm-eabi-
 ##############################################################################
 mkdir -p ./obj/KERNEL_OBJ/
 make O=./obj/KERNEL_OBJ msm8960_ef47s_tp20_user_defconfig
-make -j8 O=./obj/KERNEL_OBJ
+make -j20 O=./obj/KERNEL_OBJ
 
 ##############################################################################
 # Copy Kernel Image
