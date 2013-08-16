@@ -360,7 +360,7 @@ static void kgsl_page_alloc_free(struct kgsl_memdesc *memdesc)
 			if (sg->length == 0)
 				break;
 			__free_page(sg_page(sg));
-		}
+}
 	}
 }
 

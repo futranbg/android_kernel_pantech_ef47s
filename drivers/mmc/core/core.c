@@ -321,19 +321,32 @@ EXPORT_SYMBOL(mmc_start_delayed_bkops);
 void mmc_start_bkops(struct mmc_card *card, bool from_exception)
 {
 	int err;
-
+	
 	BUG_ON(!card);
 	if (!card->ext_csd.bkops_en)
 		return;
 
+/* 20121221 LS1-JHM modified : disabling BKOPS for samsung eMMC with firmware revision 0x12 (P018) */
+#ifdef FEATURE_PANTECH_SAMSUNG_EMMC_BUG_FIX
+	if (card->quirks & MMC_QUIRK_NO_BKOPS)
+		return;
+#endif
+	
+/* 20130325 LS1-JHM modified : avoid a mmc deadlock */
+#if 0
 	mmc_claim_host(card->host);
-
+#else
+	if(!mmc_try_claim_host(card->host)){
+		return;
+	}
+#endif
+	
 	if ((card->bkops_info.cancel_delayed_work) && !from_exception) {
 		pr_debug("%s: %s: cancel_delayed_work was set, exit\n",
 			 mmc_hostname(card->host), __func__);
 		card->bkops_info.cancel_delayed_work = false;
 		goto out;
-	}
+}
 
 	if (mmc_card_doing_bkops(card)) {
 		pr_debug("%s: %s: already doing bkops, exit\n",
@@ -343,7 +356,7 @@ void mmc_start_bkops(struct mmc_card *card, bool from_exception)
 
 	if (from_exception && mmc_card_need_bkops(card))
 		goto out;
-
+	
 	/*
 	 * If the need BKOPS flag is set, there is no need to check if BKOPS
 	 * is needed since we already know that it does
@@ -355,7 +368,7 @@ void mmc_start_bkops(struct mmc_card *card, bool from_exception)
 			       mmc_hostname(card->host), __func__, err);
 			goto out;
 		}
-
+	
 		if (!card->ext_csd.raw_bkops_status)
 			goto out;
 
@@ -364,7 +377,7 @@ void mmc_start_bkops(struct mmc_card *card, bool from_exception)
 			card->ext_csd.raw_bkops_status,
 			from_exception);
 	}
-
+	
 	/*
 	 * If the function was called due to exception, BKOPS will be performed
 	 * after handling the last pending request
@@ -377,7 +390,7 @@ void mmc_start_bkops(struct mmc_card *card, bool from_exception)
 		goto out;
 	}
 	pr_info("%s: %s: Starting bkops\n", mmc_hostname(card->host), __func__);
-
+	
 	err = __mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
 			EXT_CSD_BKOPS_START, 1, 0, false, false);
 	if (err) {
@@ -385,7 +398,7 @@ void mmc_start_bkops(struct mmc_card *card, bool from_exception)
 			mmc_hostname(card->host), __func__, err);
 		goto out;
 	}
-
+	
 	mmc_card_clr_need_bkops(card);
 
 	mmc_card_set_doing_bkops(card);
@@ -410,7 +423,7 @@ EXPORT_SYMBOL(mmc_start_bkops);
  * Since the non blocking BKOPS can be interrupted by a fetched
  * request we also check IF mmc_card_doing_bkops in each
  * iteration.
- */
+*/
 void mmc_bkops_completion_polling(struct work_struct *work)
 {
 	struct mmc_card *card = container_of(work, struct mmc_card,
@@ -425,17 +438,17 @@ void mmc_bkops_completion_polling(struct work_struct *work)
 	 * the host from getting into suspend
 	 */
 	do {
-		mmc_claim_host(card->host);
+	mmc_claim_host(card->host);
 
 		if (!mmc_card_doing_bkops(card))
 			goto out;
 
 		err = mmc_send_status(card, &status);
-		if (err) {
+	if (err) {
 			pr_err("%s: error %d requesting status\n",
-			       mmc_hostname(card->host), err);
-			goto out;
-		}
+			   mmc_hostname(card->host), err);
+		goto out;
+	}
 
 		/*
 		 * Some cards mishandle the status bits, so make sure to check
@@ -448,8 +461,8 @@ void mmc_bkops_completion_polling(struct work_struct *work)
 			mmc_card_clr_doing_bkops(card);
 			card->bkops_info.sectors_changed = 0;
 			goto out;
-		}
-
+	}
+	
 		mmc_release_host(card->host);
 
 		/*
@@ -469,18 +482,18 @@ void mmc_bkops_completion_polling(struct work_struct *work)
 	return;
 out:
 	mmc_release_host(card->host);
-}
-
+	}
+	
 /**
  * mmc_start_idle_time_bkops() - check if a non urgent BKOPS is
  * needed
  * @work:	The idle time BKOPS work
  */
 void mmc_start_idle_time_bkops(struct work_struct *work)
-{
+	{
 	struct mmc_card *card = container_of(work, struct mmc_card,
 			bkops_info.dw.work);
-
+		
 	/*
 	 * Prevent a race condition between mmc_stop_bkops and the delayed
 	 * BKOPS work in case the delayed work is executed on another CPU
@@ -714,6 +727,11 @@ int mmc_interrupt_hpi(struct mmc_card *card)
 			if (err)
 				break;
 		} while (R1_CURRENT_STATE(status) == R1_STATE_PRG);
+
+/* 20121221 LS1-JHM modified : enabling BKOPS for eMMC performance */
+#ifdef FEATURE_PANTECH_SAMSUNG_EMMC_BUG_FIX
+		mmc_card_set_need_bkops(card);
+#endif
 	} else
 		pr_debug("%s: Left prg-state\n", mmc_hostname(card->host));
 
@@ -786,7 +804,7 @@ int mmc_stop_bkops(struct mmc_card *card)
 	 * It should complete the BKOPS.
 	 */
 	if (!err || (err == -EINVAL)) {
-		mmc_card_clr_doing_bkops(card);
+	mmc_card_clr_doing_bkops(card);
 		err = 0;
 	}
 
@@ -1478,7 +1496,7 @@ void mmc_power_up(struct mmc_host *host)
 		bit = fls(host->ocr_avail) - 1;
 
 	host->ios.vdd = bit;
-	if (mmc_host_is_spi(host))
+	if (mmc_host_is_spi(host)) 
 		host->ios.chip_select = MMC_CS_HIGH;
 	else {
 		host->ios.chip_select = MMC_CS_DONTCARE;
@@ -1515,7 +1533,7 @@ void mmc_power_off(struct mmc_host *host)
 
 	host->ios.clock = 0;
 	host->ios.vdd = 0;
-
+	
 
 	/*
 	 * Reset ocr mask to be the highest possible voltage supported for
@@ -2010,6 +2028,12 @@ EXPORT_SYMBOL(mmc_can_erase);
 
 int mmc_can_trim(struct mmc_card *card)
 {
+/* 20121221 LS1-JHM modified : enabling DISCARD for eMMC performance */
+#ifdef FEATURE_PANTECH_SAMSUNG_EMMC_BUG_FIX
+	if(card->quirks & MMC_QUIRK_NO_TRIM)
+			return 0;
+#endif
+
 	if (card->ext_csd.sec_feature_support & EXT_CSD_SEC_GB_CL_EN)
 		return 1;
 	return 0;
@@ -2129,7 +2153,12 @@ unsigned int mmc_calc_max_discard(struct mmc_card *card)
 		return card->pref_erase;
 
 	max_discard = mmc_do_calc_max_discard(card, MMC_ERASE_ARG);
-	if (mmc_can_trim(card)) {
+	if (mmc_can_trim(card)
+/* 20121221 LS1-JHM modified : enabling BKOPS for eMMC performance */
+#ifdef FEATURE_PANTECH_SAMSUNG_EMMC_BUG_FIX
+			|| mmc_can_discard(card)
+#endif
+		) {
 		max_trim = mmc_do_calc_max_discard(card, MMC_TRIM_ARG);
 		if (max_trim < max_discard)
 			max_discard = max_trim;
@@ -2689,7 +2718,7 @@ int mmc_suspend_host(struct mmc_host *host)
 					err = mmc_stop_bkops(host->card);
 					if (err)
 						goto stop_bkops_err;
-				}
+					}
 				err = host->bus_ops->suspend(host);
 			}
 			if (!(host->card && mmc_card_sdio(host->card)))

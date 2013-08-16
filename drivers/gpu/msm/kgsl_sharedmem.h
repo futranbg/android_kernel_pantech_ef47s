@@ -106,7 +106,7 @@ static inline void *kgsl_sg_alloc(unsigned int sglen)
 			memset(ptr, 0, sglen * sizeof(struct scatterlist));
 
 		return ptr;
-	}
+}
 }
 
 static inline void kgsl_sg_free(void *ptr, unsigned int sglen)
